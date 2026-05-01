@@ -87,6 +87,48 @@ sudo systemctl enable --now homebackup.timer
 info "Timer enabled. Next run:"
 systemctl list-timers homebackup.timer --no-pager 2>/dev/null || true
 
+# --- Drive lifecycle management (target machine only) ---
+if [[ -n "${BACKUP_DRIVE_LABEL:-}" ]]; then
+    info "Installing drive lifecycle management (this machine holds the backup drive)..."
+
+    # Scripts
+    sudo cp "${SCRIPT_DIR}/drive-on.sh"  /usr/local/bin/homebackup-drive-on
+    sudo cp "${SCRIPT_DIR}/drive-off.sh" /usr/local/bin/homebackup-drive-off
+    sudo chmod 755 /usr/local/bin/homebackup-drive-on /usr/local/bin/homebackup-drive-off
+
+    # Systemd units
+    for unit in homebackup-drive-on.service homebackup-drive-on.timer \
+                homebackup-drive-off.service homebackup-drive-off.timer; do
+        sudo cp "${REPO_DIR}/systemd/${unit}" "${SYSTEMD_DIR}/${unit}"
+    done
+    sudo systemctl daemon-reload
+    sudo systemctl enable --now homebackup-drive-on.timer homebackup-drive-off.timer
+    info "Drive timers enabled (mount at 1:55 AM, power off at 4:00 AM)."
+
+    # udev rule — prevents desktop automount of the backup drive
+    UDEV_RULE="/etc/udev/rules.d/99-homebackup-drive.rules"
+    sudo tee "$UDEV_RULE" > /dev/null <<EOF
+# Prevent desktop automount of the backup drive; managed exclusively by homebackup timers.
+SUBSYSTEM=="block", ENV{ID_FS_LABEL}=="${BACKUP_DRIVE_LABEL}", ENV{UDISKS_AUTO}="0"
+EOF
+    sudo udevadm control --reload-rules
+    info "udev rule installed: desktop will no longer automount '${BACKUP_DRIVE_LABEL}'."
+
+    # polkit rule — allows jdn to mount/unmount/power-off via udisksctl without an active session
+    POLKIT_RULE="/etc/polkit-1/rules.d/99-homebackup.rules"
+    sudo tee "$POLKIT_RULE" > /dev/null <<'EOF'
+polkit.addRule(function(action, subject) {
+    if ((action.id == "org.freedesktop.udisks2.filesystem-mount" ||
+         action.id == "org.freedesktop.udisks2.filesystem-unmount-others" ||
+         action.id == "org.freedesktop.udisks2.power-off-drive") &&
+        subject.user == "jdn") {
+        return polkit.Result.YES;
+    }
+});
+EOF
+    info "polkit rule installed: jdn can mount/unmount/power-off drives in systemd services."
+fi
+
 # --- Print public key and instructions ---
 PUBKEY=$(cat "${KEY_PATH}.pub")
 echo ""

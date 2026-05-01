@@ -1,4 +1,4 @@
-# HomeBackups
+# homeBackup
 
 Push-based rsync backup system for home machines. Each source machine pushes nightly to an external USB drive on `jdnLinux2.local`.
 
@@ -13,6 +13,19 @@ gpuServer1.local  ────────────────────�
 jdnLinux2.local   ──── rsync over SSH ──▶  /media/jdn/Elements/  (USB drive on jdnLinux2)
 spark-8d0d.local  ─────────────────────┘
 ```
+
+### Drive Lifecycle (HDD longevity)
+
+The backup drive is kept **unmounted and powered off** at all times except during the nightly backup window. Nothing touches the drive outside this window — no desktop automount, no OS journal writes, no atime updates.
+
+```
+01:55 AM  homebackup-drive-on.timer   →  mounts the drive
+02:00 AM  homebackup.timer fires      →  all machines begin backing up
+          (up to 15 min random stagger to avoid simultaneous rsync)
+04:00 AM  homebackup-drive-off.timer  →  unmounts + powers off the drive
+```
+
+A udev rule (`/etc/udev/rules.d/99-homebackup-drive.rules`) prevents the desktop from automounting the drive when it's detected. These components are only installed on `jdnLinux2` (the machine with the drive), detected automatically by `install.sh` via `BACKUP_DRIVE_LABEL` in the config.
 
 ### Backup Layout on Drive
 
@@ -42,25 +55,31 @@ spark-8d0d.local  ────────────────────�
 
 ### Scheduling
 
-Systemd timer fires at 02:00 daily with `Persistent=true` (catches up on missed runs) and `RandomizedDelaySec=900` (staggers the three machines randomly within a 15-minute window to avoid simultaneous rsync).
+Backup timer fires at 02:00 daily with `Persistent=true` (catches up on missed runs) and `RandomizedDelaySec=900` (staggers machines randomly within 15 minutes). Drive mount/unmount timers fire at 01:55 and 04:00 and do not use a random delay.
 
 ---
 
 ## Repository Structure
 
 ```
-HomeBackups/
+homeBackup/
 ├── configs/
 │   ├── gpuServer1.conf    # per-machine: source dirs, excludes, SSH key path
-│   ├── jdnLinux2.conf
+│   ├── jdnLinux2.conf     # also sets BACKUP_DRIVE_LABEL to enable drive lifecycle mgmt
 │   └── spark-8d0d.conf
 ├── scripts/
-│   ├── backup.sh          # main backup runner — installed to /usr/local/bin/homebackup
-│   ├── setup_target.sh    # run once on jdnLinux2 to prepare the drive
+│   ├── backup.sh          # main backup runner → /usr/local/bin/homebackup
+│   ├── drive-on.sh        # mount the backup drive → /usr/local/bin/homebackup-drive-on
+│   ├── drive-off.sh       # unmount + power off → /usr/local/bin/homebackup-drive-off
+│   ├── setup_target.sh    # run once on jdnLinux2 to prepare the drive and backup user
 │   └── install.sh         # run on each source machine
 ├── systemd/
 │   ├── homebackup.service
-│   └── homebackup.timer
+│   ├── homebackup.timer
+│   ├── homebackup-drive-on.service   # installed on jdnLinux2 only
+│   ├── homebackup-drive-on.timer
+│   ├── homebackup-drive-off.service
+│   └── homebackup-drive-off.timer
 └── docs/
     ├── adding-a-machine.md
     └── recovery.md
@@ -73,39 +92,50 @@ HomeBackups/
 ### Step 1 — Prepare the target (jdnLinux2.local)
 
 ```bash
-cd ~/Code/HomeBackups
+cd ~/Code/homeBackup
 sudo bash scripts/setup_target.sh
 ```
 
-This creates the `backup` user, installs `rrsync`, and sets up the drive mount and directory structure. Follow the on-screen prompts for the USB drive UUID and `/etc/fstab` entry.
+Creates the `backup` user, installs `rrsync`, and creates the per-machine directory structure on the drive.
 
-### Step 2 — Install on each source machine
-
-On each machine (`gpuServer1.local`, `jdnLinux2.local`, `spark-8d0d.local`):
+### Step 2 — Install on jdnLinux2 first
 
 ```bash
-cd ~/Code/HomeBackups
 bash scripts/install.sh
 ```
 
-This:
-1. Generates `/home/jdn/.ssh/id_ed25519_backup_<hostname>` (no passphrase)
-2. Installs `/usr/local/bin/homebackup` and `/etc/homebackup/machine.conf`
-3. Enables the `homebackup.timer` systemd unit
-4. Prints the public key to add to the target
+Because `jdnLinux2.conf` sets `BACKUP_DRIVE_LABEL`, this also installs the drive lifecycle timers, the udev automount-block rule, and the polkit rule that lets the `jdn` user control the drive from systemd services.
 
-### Step 3 — Authorize the key on the target
+### Step 3 — Install on each other source machine
 
-On `jdnLinux2.local`, for each source machine:
+On `gpuServer1.local` and `spark-8d0d.local`:
 
 ```bash
-sudo bash ~/Code/HomeBackups/scripts/setup_target.sh --add-key <machine> "<pubkey>"
+cd ~/Code/homeBackup
+bash scripts/install.sh
 ```
 
-### Step 4 — Test
+This generates an SSH key, installs the backup script and timer, and prints the public key.
+
+### Step 4 — Authorize each key on the target
+
+On `jdnLinux2.local`, for each remote machine:
 
 ```bash
+sudo bash ~/Code/homeBackup/scripts/setup_target.sh --add-key <machine> "<pubkey>"
+```
+
+### Step 5 — Test
+
+```bash
+# Mount the drive manually for testing (normally handled by the 1:55 AM timer)
+homebackup-drive-on
+
+# Dry run
 homebackup --dry-run
+
+# Power off when done
+homebackup-drive-off
 ```
 
 ---
@@ -122,6 +152,9 @@ BACKUP_SSH_KEY="/home/jdn/.ssh/id_ed25519_backup_<hostname>"
 BACKUP_PORT=22
 SNAPSHOT_KEEP_DAYS=30
 
+# Only set on the machine that physically holds the drive:
+# BACKUP_DRIVE_LABEL="Elements"
+
 BACKUP_SOURCES=(
     "/home/jdn/Code/"
     "/home/jdn/Documents/"
@@ -137,25 +170,29 @@ BACKUP_EXCLUDES=(
 )
 ```
 
-Edit the `BACKUP_SOURCES` and `BACKUP_EXCLUDES` arrays to control what gets backed up. Changes take effect on the next run (the config is copied to `/etc/homebackup/machine.conf` by `install.sh` — re-run install or copy manually to update a deployed machine).
+Edit `BACKUP_SOURCES` and `BACKUP_EXCLUDES` to control what's backed up. After editing, re-run `install.sh` or copy the conf manually to `/etc/homebackup/machine.conf` on the deployed machine.
 
 ---
 
 ## Monitoring
 
 ```bash
-# Check timer schedule
-systemctl list-timers homebackup.timer
+# Check all timer schedules (on jdnLinux2, shows drive + backup timers)
+systemctl list-timers 'homebackup*'
 
 # Watch a live backup run
 journalctl -u homebackup -f
+
+# Watch drive mount/unmount
+journalctl -u homebackup-drive-on -u homebackup-drive-off -f
 
 # View last run log
 ls -lt /var/log/homebackup/
 cat /var/log/homebackup/<machine>-<date>.log
 
-# Check last run status
-systemctl status homebackup
+# Manually mount/unmount the drive (e.g. for testing or recovery)
+homebackup-drive-on
+homebackup-drive-off
 ```
 
 ---
@@ -167,3 +204,7 @@ See [docs/adding-a-machine.md](docs/adding-a-machine.md).
 ## Recovery
 
 See [docs/recovery.md](docs/recovery.md).
+
+## Drive Health & Automount Reference
+
+See [docs/drive-health.md](docs/drive-health.md) for SMART monitoring commands and notes on the automount-block approach.

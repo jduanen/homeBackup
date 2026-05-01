@@ -95,6 +95,18 @@ cmd_full_setup() {
         info "  Created user '${BACKUP_USER}'."
     fi
 
+    # Drive is normally unmounted (managed by drive lifecycle timers).
+    # Mount it temporarily here so we can set ownership, then unmount.
+    DRIVE_WAS_MOUNTED=0
+    if mountpoint -q "$BACKUP_MOUNT"; then
+        DRIVE_WAS_MOUNTED=1
+    else
+        info "  Mounting drive temporarily to set ownership..."
+        DEVICE=$(readlink -f /dev/disk/by-label/Elements 2>/dev/null) || \
+            die "Could not find drive by label 'Elements'. Is it plugged in?"
+        mount "$DEVICE" "$BACKUP_MOUNT"
+    fi
+
     chown "${BACKUP_USER}:${BACKUP_USER}" "$BACKUP_MOUNT"
     chmod 750 "$BACKUP_MOUNT"
 
@@ -151,16 +163,21 @@ cmd_full_setup() {
         cmd_add_machine "$machine"
     done
 
+    # Unmount again — normal state is unmounted; drive lifecycle timers manage it
+    if [[ "$DRIVE_WAS_MOUNTED" -eq 0 ]] && mountpoint -q "$BACKUP_MOUNT"; then
+        info "Unmounting drive (will be managed by lifecycle timers after install)..."
+        umount "$BACKUP_MOUNT"
+    fi
+
     info ""
     info "=== Setup complete ==="
     info ""
     info "Next steps:"
-    info "  1. On each source machine, run:  bash install.sh"
-    info "  2. Copy the printed public key, then run:"
+    info "  1. On jdnLinux2, run:  bash install.sh  (installs drive lifecycle timers + udev rule)"
+    info "  2. On each other source machine, run:  bash install.sh"
+    info "  3. Copy each machine's printed public key, then run:"
     info "     sudo bash setup_target.sh --add-key <machine> \"<pubkey>\""
-    info "  3. Test from the source machine:  homebackup --dry-run"
-    info ""
-    df -h "$BACKUP_MOUNT"
+    info "  4. Test from the source machine:  homebackup --dry-run"
 }
 
 # -----------------------------------------------------------------------
