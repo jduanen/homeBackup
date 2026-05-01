@@ -1,0 +1,17 @@
+[Unit]
+Description=Home Backup (rsync to jdnLinux2)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=jdn
+Group=jdn
+ExecStart=/usr/local/bin/homebackup
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=homebackup
+TimeoutStartSec=14400
+
+[Install]
+WantedBy=multi-user.target

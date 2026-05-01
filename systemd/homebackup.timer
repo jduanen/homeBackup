@@ -1,0 +1,14 @@
+[Unit]
+Description=Nightly Home Backup Timer
+Requires=homebackup.service
+
+[Timer]
+OnCalendar=*-*-* 02:00:00
+# Fire at next boot if the machine was off at 2 AM
+Persistent=true
+# Stagger machines randomly up to 15 min to avoid simultaneous rsync to the target
+RandomizedDelaySec=900
+Unit=homebackup.service
+
+[Install]
+WantedBy=timers.target
