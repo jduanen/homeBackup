@@ -1,0 +1,16 @@
+[Unit]
+Description=Mount backup drive (open backup window)
+After=udisks2.service
+Requires=udisks2.service
+
+[Service]
+Type=oneshot
+User=jdn
+Group=jdn
+ExecStart=/usr/local/bin/homebackup-drive-on
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=homebackup-drive
+
+[Install]
+WantedBy=timers.target

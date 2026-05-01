@@ -1,0 +1,12 @@
+[Unit]
+Description=Unmount and power off backup drive at 4:00 AM (after backup window)
+
+[Timer]
+# Backups run 2:00–2:15 AM (15 min random stagger) and typically finish well before 4 AM.
+# Adjust if your backups routinely take more than ~2 hours.
+OnCalendar=*-*-* 04:00:00
+Persistent=true
+Unit=homebackup-drive-off.service
+
+[Install]
+WantedBy=timers.target

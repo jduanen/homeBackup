@@ -1,0 +1,15 @@
+[Unit]
+Description=Unmount and power off backup drive (close backup window)
+After=udisks2.service homebackup.service
+
+[Service]
+Type=oneshot
+User=jdn
+Group=jdn
+ExecStart=/usr/local/bin/homebackup-drive-off
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=homebackup-drive
+
+[Install]
+WantedBy=timers.target

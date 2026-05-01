@@ -1,0 +1,11 @@
+[Unit]
+Description=Mount backup drive at 1:55 AM (before backup window)
+
+[Timer]
+# Fire 5 minutes before backups start to ensure drive is ready
+OnCalendar=*-*-* 01:55:00
+Persistent=true
+Unit=homebackup-drive-on.service
+
+[Install]
+WantedBy=timers.target
