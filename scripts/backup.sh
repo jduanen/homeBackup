@@ -48,18 +48,13 @@ fi
 echo $$ > "$LOCK_FILE"
 trap 'rm -f "$LOCK_FILE"' EXIT
 
-# --- SSH reachability check ---
-log "Checking connectivity to ${BACKUP_USER}@${BACKUP_HOST}..."
-if ! ssh -i "$BACKUP_SSH_KEY" \
-        -p "$BACKUP_PORT" \
-        -o BatchMode=yes \
-        -o ConnectTimeout=10 \
-        -o StrictHostKeyChecking=accept-new \
-        "${BACKUP_USER}@${BACKUP_HOST}" exit 2>/dev/null; then
-    log "WARNING: Cannot reach ${BACKUP_HOST}. Skipping backup run."
+# --- SSH reachability check (TCP only — authorized_keys uses forced command so SSH exit won't work) ---
+log "Checking connectivity to ${BACKUP_HOST}:${BACKUP_PORT}..."
+if ! nc -z -w 10 "$BACKUP_HOST" "$BACKUP_PORT" 2>/dev/null; then
+    log "WARNING: Cannot reach ${BACKUP_HOST}:${BACKUP_PORT}. Skipping backup run."
     exit 0
 fi
-log "Connected to ${BACKUP_HOST}."
+log "${BACKUP_HOST} is reachable."
 
 # --- Build rsync exclude args ---
 EXCLUDE_ARGS=()
