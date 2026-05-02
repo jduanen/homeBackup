@@ -35,7 +35,7 @@ log "=== homebackup starting on ${MACHINE} ==="
 [[ "$DRY_RUN" -eq 1 ]] && log "DRY RUN MODE — no changes will be written"
 
 # --- Lock file ---
-LOCK_FILE="/var/run/homebackup.pid"
+LOCK_FILE="${XDG_RUNTIME_DIR:-/tmp}/homebackup.pid"
 if [[ -f "$LOCK_FILE" ]]; then
     OLD_PID=$(cat "$LOCK_FILE")
     if kill -0 "$OLD_PID" 2>/dev/null; then
