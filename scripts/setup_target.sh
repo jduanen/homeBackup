@@ -42,6 +42,19 @@ cmd_add_key() {
     require_root
     local auth_keys="${BACKUP_HOME}/.ssh/authorized_keys"
 
+    # Ensure backup user and SSH directory exist
+    if ! id "$BACKUP_USER" &>/dev/null; then
+        useradd -r -s /bin/bash -m -d "$BACKUP_HOME" "$BACKUP_USER"
+        info "Created user '${BACKUP_USER}'."
+    fi
+    if [[ ! -d "${BACKUP_HOME}/.ssh" ]]; then
+        mkdir -p "${BACKUP_HOME}/.ssh"
+        touch "$auth_keys"
+        chmod 700 "${BACKUP_HOME}/.ssh"
+        chmod 600 "$auth_keys"
+        chown -R "${BACKUP_USER}:${BACKUP_USER}" "${BACKUP_HOME}/.ssh"
+    fi
+
     # Check for duplicate
     if grep -qF "$pubkey" "$auth_keys" 2>/dev/null; then
         info "Public key for ${machine} already in authorized_keys. Skipping."
