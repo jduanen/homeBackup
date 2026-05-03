@@ -6,8 +6,8 @@
 #   sudo bash setup_target.sh --add-key <machine> "<pubkey>"  # add SSH key for a machine
 set -euo pipefail
 
-BACKUP_USER="rsyncbkp"
-BACKUP_HOME="/home/rsyncbkp"
+BACKUP_USER="jdn"
+BACKUP_HOME="/home/jdn"
 BACKUP_MOUNT="/media/jdn/Elements"
 RRSYNC_DEST="/usr/local/bin/rrsync"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -42,17 +42,8 @@ cmd_add_key() {
     require_root
     local auth_keys="${BACKUP_HOME}/.ssh/authorized_keys"
 
-    # Ensure backup user and SSH directory exist
-    if ! id "$BACKUP_USER" &>/dev/null; then
-        useradd -r -s /bin/bash -m -d "$BACKUP_HOME" "$BACKUP_USER"
-        info "Created user '${BACKUP_USER}'."
-    fi
-    if [[ ! -d "${BACKUP_HOME}/.ssh" ]]; then
-        mkdir -p "${BACKUP_HOME}/.ssh"
-        touch "$auth_keys"
-        chmod 700 "${BACKUP_HOME}/.ssh"
-        chmod 600 "$auth_keys"
-        chown -R "${BACKUP_USER}:${BACKUP_USER}" "${BACKUP_HOME}/.ssh"
+    if [[ ! -f "$auth_keys" ]]; then
+        die "${auth_keys} not found. Is the jdn user set up correctly?"
     fi
 
     # Check for duplicate
@@ -66,8 +57,6 @@ cmd_add_key() {
     entry+="${pubkey}"
 
     echo "$entry" >> "$auth_keys"
-    chmod 600 "$auth_keys"
-    chown "${BACKUP_USER}:${BACKUP_USER}" "$auth_keys"
     info "Added key for ${machine} to ${auth_keys}"
 }
 
@@ -99,29 +88,7 @@ cmd_full_setup() {
         mountpoint -q "$BACKUP_MOUNT" || die "${BACKUP_MOUNT} still not mounted. Aborting."
     fi
 
-    # --- Backup user ---
-    info "Creating backup user..."
-    if id "$BACKUP_USER" &>/dev/null; then
-        info "  User '${BACKUP_USER}' already exists."
-    else
-        useradd -r -s /bin/bash -m -d "$BACKUP_HOME" "$BACKUP_USER"
-        info "  Created user '${BACKUP_USER}'."
-    fi
-
-    # Drive is normally unmounted (managed by drive lifecycle timers).
-    # Mount it temporarily here so we can set ownership, then unmount.
-    DRIVE_WAS_MOUNTED=0
-    if mountpoint -q "$BACKUP_MOUNT"; then
-        DRIVE_WAS_MOUNTED=1
-    else
-        info "  Mounting drive temporarily to set ownership..."
-        DEVICE=$(readlink -f /dev/disk/by-label/Elements 2>/dev/null) || \
-            die "Could not find drive by label 'Elements'. Is it plugged in?"
-        mount "$DEVICE" "$BACKUP_MOUNT"
-    fi
-
-    chown "${BACKUP_USER}:${BACKUP_USER}" "$BACKUP_MOUNT"
-    chmod 750 "$BACKUP_MOUNT"
+    # The drive is NTFS (uid=jdn baked in at mount time), so no chown needed.
 
     # --- rrsync ---
     info "Installing rrsync..."
@@ -161,13 +128,7 @@ cmd_full_setup() {
         info "  Installed rrsync from ${RRSYNC_SRC}."
     fi
 
-    # --- SSH directory ---
-    info "Setting up backup user SSH directory..."
-    mkdir -p "${BACKUP_HOME}/.ssh"
-    touch "${BACKUP_HOME}/.ssh/authorized_keys"
-    chmod 700 "${BACKUP_HOME}/.ssh"
-    chmod 600 "${BACKUP_HOME}/.ssh/authorized_keys"
-    chown -R "${BACKUP_USER}:${BACKUP_USER}" "${BACKUP_HOME}/.ssh"
+    # jdn's .ssh already exists; nothing to create.
 
     # --- Backup directories for known machines ---
     info "Creating backup directories for configured machines..."

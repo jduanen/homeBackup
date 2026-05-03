@@ -145,7 +145,7 @@ homebackup-drive-off
 Each `configs/<hostname>.conf` is a bash-sourceable file:
 
 ```bash
-BACKUP_USER="rsyncbkp"
+BACKUP_USER="jdn"
 BACKUP_HOST="jdnLinux2.local"
 BACKUP_BASE="/media/jdn/Elements"
 BACKUP_SSH_KEY="/home/jdn/.ssh/id_ed25519_backup_<hostname>"
