@@ -6,8 +6,8 @@
 #   sudo bash setup_target.sh --add-key <machine> "<pubkey>"  # add SSH key for a machine
 set -euo pipefail
 
-BACKUP_USER="backup"
-BACKUP_HOME="/home/backup"
+BACKUP_USER="rsyncbkp"
+BACKUP_HOME="/home/rsyncbkp"
 BACKUP_MOUNT="/media/jdn/Elements"
 RRSYNC_DEST="/usr/local/bin/rrsync"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

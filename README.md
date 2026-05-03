@@ -49,7 +49,7 @@ A udev rule (`/etc/udev/rules.d/99-homebackup-drive.rules`) prevents the desktop
 
 ### SSH Security
 
-- Dedicated `backup` system user on `jdnLinux2.local` — no password login, no sudo
+- Dedicated `rsyncbkp` user on `jdnLinux2.local` — no password login, no sudo
 - Each source machine has its own `ed25519` key
 - `authorized_keys` uses `command=rrsync <path>` forced command — a key can only rsync into its own machine's subtree
 
@@ -145,7 +145,7 @@ homebackup-drive-off
 Each `configs/<hostname>.conf` is a bash-sourceable file:
 
 ```bash
-BACKUP_USER="backup"
+BACKUP_USER="rsyncbkp"
 BACKUP_HOST="jdnLinux2.local"
 BACKUP_BASE="/media/jdn/Elements"
 BACKUP_SSH_KEY="/home/jdn/.ssh/id_ed25519_backup_<hostname>"
