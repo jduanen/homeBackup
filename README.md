@@ -22,7 +22,7 @@ The backup drive is kept **unmounted and powered off** at all times except durin
 01:55 AM  homebackup-drive-on.timer   →  mounts the drive
 02:00 AM  homebackup.timer fires      →  all machines begin backing up
           (up to 15 min random stagger to avoid simultaneous rsync)
-04:00 AM  homebackup-drive-off.timer  →  unmounts + powers off the drive
+04:00 AM  homebackup-drive-off.timer  →  unmounts the drive (spins down via idle timeout)
 ```
 
 A udev rule (`/etc/udev/rules.d/99-homebackup-drive.rules`) prevents the desktop from automounting the drive when it's detected. These components are only installed on `jdnLinux2` (the machine with the drive), detected automatically by `install.sh` via `BACKUP_DRIVE_LABEL` in the config.
