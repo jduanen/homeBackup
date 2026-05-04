@@ -65,7 +65,7 @@ done
 DRY_RUN_ARG=()
 [[ "$DRY_RUN" -eq 1 ]] && DRY_RUN_ARG=("--dry-run")
 
-SSH_CMD="ssh -i ${BACKUP_SSH_KEY} -p ${BACKUP_PORT} -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes"
+SSH_CMD="ssh -i ${BACKUP_SSH_KEY} -p ${BACKUP_PORT} -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes -o ClearAllForwardings=yes"
 
 # --- rsync each source ---
 for src in "${BACKUP_SOURCES[@]}"; do
