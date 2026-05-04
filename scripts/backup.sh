@@ -75,7 +75,8 @@ for src in "${BACKUP_SOURCES[@]}"; do
     rel_dst="${rel_dst%/}"
 
     log "--- Syncing: ${src} ---"
-    if rsync -aHAXvz \
+    rsync_exit=0
+    rsync -aHAXvz \
             --numeric-ids \
             --delete \
             --delete-excluded \
@@ -88,11 +89,15 @@ for src in "${BACKUP_SOURCES[@]}"; do
             "${EXCLUDE_ARGS[@]}" \
             "${DRY_RUN_ARG[@]}" \
             "${src}" \
-            "${BACKUP_USER}@${BACKUP_HOST}:./${rel_dst}/"; then
+            "${BACKUP_USER}@${BACKUP_HOST}:./${rel_dst}/" || rsync_exit=$?
+    if [[ $rsync_exit -eq 0 ]]; then
         log "OK: ${src}"
         SOURCES_OK=$((SOURCES_OK + 1))
+    elif [[ $rsync_exit -eq 23 || $rsync_exit -eq 24 ]]; then
+        log "WARNING: ${src} completed with partial transfer (exit ${rsync_exit}) — some files skipped"
+        SOURCES_OK=$((SOURCES_OK + 1))
     else
-        log "ERROR: rsync failed for ${src} (exit $?)"
+        log "ERROR: rsync failed for ${src} (exit ${rsync_exit})"
         ERRORS=$((ERRORS + 1))
     fi
 done
