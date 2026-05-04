@@ -105,6 +105,15 @@ if [[ -n "${BACKUP_DRIVE_LABEL:-}" ]]; then
     sudo systemctl enable --now homebackup-drive-on.timer homebackup-drive-off.timer
     info "Drive timers enabled (mount at 1:55 AM, power off at 4:00 AM)."
 
+    # Snapshot service (runs at 3 AM, local, no SSH needed)
+    sudo cp "${SCRIPT_DIR}/snapshot.sh" /usr/local/bin/homebackup-snapshot
+    sudo chmod 755 /usr/local/bin/homebackup-snapshot
+    sudo cp "${REPO_DIR}/systemd/homebackup-snapshot.service" "${SYSTEMD_DIR}/homebackup-snapshot.service"
+    sudo cp "${REPO_DIR}/systemd/homebackup-snapshot.timer"   "${SYSTEMD_DIR}/homebackup-snapshot.timer"
+    sudo systemctl daemon-reload
+    sudo systemctl enable --now homebackup-snapshot.timer
+    info "Snapshot timer enabled (fires at 3:00 AM)."
+
     # udev rule — prevents desktop automount of the backup drive
     UDEV_RULE="/etc/udev/rules.d/99-homebackup-drive.rules"
     sudo tee "$UDEV_RULE" > /dev/null <<EOF

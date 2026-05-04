@@ -97,34 +97,6 @@ for src in "${BACKUP_SOURCES[@]}"; do
     fi
 done
 
-# --- Snapshot (skip on dry run) ---
-if [[ "$DRY_RUN" -eq 0 ]]; then
-    SNAP_DATE=$(date +%Y-%m-%d)
-    MACHINE_BASE="${BACKUP_BASE}/${MACHINE}"
-    log "Creating snapshot: ${MACHINE_BASE}/snapshots/${SNAP_DATE}/"
-    if ssh -i "$BACKUP_SSH_KEY" -p "$BACKUP_PORT" \
-            -o BatchMode=yes \
-            "${BACKUP_USER}@${BACKUP_HOST}" \
-            "if [[ ! -d '${MACHINE_BASE}/snapshots/${SNAP_DATE}' ]]; then \
-                 cp -al '${MACHINE_BASE}/current/' '${MACHINE_BASE}/snapshots/${SNAP_DATE}'; \
-             else \
-                 echo 'Snapshot for today already exists, skipping.'; \
-             fi"; then
-        log "Snapshot created."
-    else
-        log "WARNING: Snapshot creation failed (non-fatal)."
-    fi
-
-    # --- Prune old snapshots ---
-    log "Pruning snapshots older than ${SNAPSHOT_KEEP_DAYS} days..."
-    ssh -i "$BACKUP_SSH_KEY" -p "$BACKUP_PORT" \
-            -o BatchMode=yes \
-            "${BACKUP_USER}@${BACKUP_HOST}" \
-            "find '${MACHINE_BASE}/snapshots/' -maxdepth 1 -mindepth 1 -type d -mtime +${SNAPSHOT_KEEP_DAYS} \
-             -exec echo 'Removing: {}' \; -exec rm -rf '{}' \;" || \
-        log "WARNING: Snapshot pruning failed (non-fatal)."
-fi
-
 # --- Summary ---
 ELAPSED=$(( $(date +%s) - START_TIME ))
 log "=== homebackup complete: ${SOURCES_OK} sources ok, ${ERRORS} errors, ${ELAPSED}s elapsed ==="
