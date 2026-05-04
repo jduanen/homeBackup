@@ -79,6 +79,7 @@ for src in "${BACKUP_SOURCES[@]}"; do
             --numeric-ids \
             --delete \
             --delete-excluded \
+            --mkpath \
             --partial \
             --partial-dir=".rsync-partial" \
             --timeout=120 \
