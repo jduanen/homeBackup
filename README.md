@@ -6,7 +6,7 @@ Push-based rsync backup system for home machines. Each source machine pushes nig
 
 ### Architecture
 
-Each source machine runs a systemd timer that fires at 2 AM and calls `homebackup` (a bash script wrapping rsync). The script pushes over SSH to a dedicated `backup` user on `jdnLinux2.local`. SSH keys are restricted using `rrsync` so each machine can only write to its own subtree on the drive.
+Each source machine runs a systemd timer that fires at 2 AM and calls `homebackup` (a bash script wrapping rsync). The script pushes over SSH to the `jdn` user on `jdnLinux2.local`. SSH keys are restricted using `rrsync` so each machine can only write to its own subtree on the drive. Snapshots are created locally on `jdnLinux2` by a separate timer at 3 AM — no SSH required for that step.
 
 ```
 gpuServer1.local  ─────────────────────┐
@@ -19,13 +19,14 @@ spark-8d0d.local  ────────────────────�
 The backup drive is kept **unmounted and powered off** at all times except during the nightly backup window. Nothing touches the drive outside this window — no desktop automount, no OS journal writes, no atime updates.
 
 ```
-01:55 AM  homebackup-drive-on.timer   →  mounts the drive
-02:00 AM  homebackup.timer fires      →  all machines begin backing up
+01:55 AM  homebackup-drive-on.timer    →  mounts the drive
+02:00 AM  homebackup.timer fires       →  all machines begin backing up
           (up to 15 min random stagger to avoid simultaneous rsync)
-04:00 AM  homebackup-drive-off.timer  →  unmounts the drive (spins down via idle timeout)
+03:00 AM  homebackup-snapshot.timer    →  creates hardlink snapshots, prunes old ones
+04:00 AM  homebackup-drive-off.timer   →  unmounts the drive (spins down via idle timeout)
 ```
 
-A udev rule (`/etc/udev/rules.d/99-homebackup-drive.rules`) prevents the desktop from automounting the drive when it's detected. These components are only installed on `jdnLinux2` (the machine with the drive), detected automatically by `install.sh` via `BACKUP_DRIVE_LABEL` in the config.
+A udev rule (`/etc/udev/rules.d/99-homebackup-drive.rules`) prevents the desktop from automounting the drive when it's detected. The drive-on, drive-off, and snapshot timers are only installed on `jdnLinux2` (the machine with the drive), detected automatically by `install.sh` via `BACKUP_DRIVE_LABEL` in the config.
 
 ### Backup Layout on Drive
 
@@ -49,13 +50,14 @@ A udev rule (`/etc/udev/rules.d/99-homebackup-drive.rules`) prevents the desktop
 
 ### SSH Security
 
-- Dedicated `rsyncbkp` user on `jdnLinux2.local` — no password login, no sudo
 - Each source machine has its own `ed25519` key
-- `authorized_keys` uses `command=rrsync <path>` forced command — a key can only rsync into its own machine's subtree
+- `authorized_keys` on `jdnLinux2` uses `command=rrsync <path>` forced command — a key can only rsync into its own machine's subtree
+- `no-pty,no-port-forwarding,no-X11-forwarding,no-agent-forwarding` on every key entry
+- Snapshots run locally on `jdnLinux2` (not over SSH) so they are not affected by the rrsync restriction
 
 ### Scheduling
 
-Backup timer fires at 02:00 daily with `Persistent=true` (catches up on missed runs) and `RandomizedDelaySec=900` (staggers machines randomly within 15 minutes). Drive mount/unmount timers fire at 01:55 and 04:00 and do not use a random delay.
+Backup timer fires at 02:00 daily with `Persistent=true` (catches up on missed runs) and `RandomizedDelaySec=900` (staggers machines randomly within 15 minutes). Drive mount/unmount and snapshot timers fire at fixed times and do not use a random delay.
 
 ---
 
@@ -69,6 +71,7 @@ homeBackup/
 │   └── spark-8d0d.conf
 ├── scripts/
 │   ├── backup.sh          # main backup runner → /usr/local/bin/homebackup
+│   ├── snapshot.sh        # creates hardlink snapshots, prunes old ones → /usr/local/bin/homebackup-snapshot
 │   ├── drive-on.sh        # mount the backup drive → /usr/local/bin/homebackup-drive-on
 │   ├── drive-off.sh       # unmount + power off → /usr/local/bin/homebackup-drive-off
 │   ├── setup_target.sh    # run once on jdnLinux2 to prepare the drive and backup user
@@ -76,12 +79,15 @@ homeBackup/
 ├── systemd/
 │   ├── homebackup.service
 │   ├── homebackup.timer
+│   ├── homebackup-snapshot.service   # installed on jdnLinux2 only
+│   ├── homebackup-snapshot.timer
 │   ├── homebackup-drive-on.service   # installed on jdnLinux2 only
 │   ├── homebackup-drive-on.timer
 │   ├── homebackup-drive-off.service
 │   └── homebackup-drive-off.timer
 └── docs/
     ├── adding-a-machine.md
+    ├── drive-health.md
     └── recovery.md
 ```
 
@@ -96,7 +102,7 @@ cd ~/Code/homeBackup
 sudo bash scripts/setup_target.sh
 ```
 
-Creates the `backup` user, installs `rrsync`, and creates the per-machine directory structure on the drive.
+Creates the directory structure on the drive, installs `rrsync`, and sets ownership.
 
 ### Step 2 — Install on jdnLinux2 first
 
@@ -104,7 +110,7 @@ Creates the `backup` user, installs `rrsync`, and creates the per-machine direct
 bash scripts/install.sh
 ```
 
-Because `jdnLinux2.conf` sets `BACKUP_DRIVE_LABEL`, this also installs the drive lifecycle timers, the udev automount-block rule, and the polkit rule that lets the `jdn` user control the drive from systemd services.
+Because `jdnLinux2.conf` sets `BACKUP_DRIVE_LABEL`, this also installs the drive lifecycle timers (drive-on, drive-off, snapshot), the udev automount-block rule, and the polkit rule that lets the `jdn` user control the drive from systemd services.
 
 ### Step 3 — Install on each other source machine
 
@@ -133,6 +139,9 @@ homebackup-drive-on
 
 # Dry run
 homebackup --dry-run
+
+# Run snapshot manually (reads BACKUP_BASE and SNAPSHOT_KEEP_DAYS from /etc/homebackup/machine.conf)
+homebackup-snapshot
 
 # Power off when done
 homebackup-drive-off
@@ -172,23 +181,29 @@ BACKUP_EXCLUDES=(
 
 Edit `BACKUP_SOURCES` and `BACKUP_EXCLUDES` to control what's backed up. After editing, re-run `install.sh` or copy the conf manually to `/etc/homebackup/machine.conf` on the deployed machine.
 
+`SNAPSHOT_KEEP_DAYS` in `jdnLinux2.conf` controls retention for **all** machines — the snapshot script runs locally on jdnLinux2 and uses its own machine.conf.
+
 ---
 
 ## Monitoring
 
 ```bash
-# Check all timer schedules (on jdnLinux2, shows drive + backup timers)
+# Check all timer schedules (on jdnLinux2, shows all homebackup timers)
 systemctl list-timers 'homebackup*'
 
 # Watch a live backup run
 journalctl -u homebackup -f
 
+# Watch snapshot creation
+journalctl -u homebackup-snapshot -f
+
 # Watch drive mount/unmount
 journalctl -u homebackup-drive-on -u homebackup-drive-off -f
 
-# View last run log
+# View last run logs
 ls -lt /var/log/homebackup/
-cat /var/log/homebackup/<machine>-<date>.log
+cat /var/log/homebackup/<machine>-<date>.log   # per-machine rsync log
+cat /var/log/homebackup/snapshots-<date>.log   # snapshot log (on jdnLinux2)
 
 # Manually mount/unmount the drive (e.g. for testing or recovery)
 homebackup-drive-on
