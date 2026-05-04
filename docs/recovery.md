@@ -17,34 +17,58 @@ On `jdnLinux2.local`, the USB drive is at `/media/jdn/Elements/`. Each machine h
     └── current/...
 ```
 
-## Restore a single file or directory
+Mount the drive first if it isn't already:
 
 ```bash
-# From the target machine, copy directly:
-cp /media/jdn/Elements/<machine>/current/home/jdn/Documents/important.pdf ~/Documents/
-
-# Or rsync from a remote machine:
-rsync -av backup@jdnLinux2.local:./home/jdn/Documents/important.pdf ~/Documents/
+homebackup-drive-on
 ```
 
-Note: the `backup` SSH key allows rsync access restricted to the machine's own subtree.
+## Restore a single file or directory
+
+**On jdnLinux2 (direct copy from mounted drive):**
+
+```bash
+cp /media/jdn/Elements/<machine>/current/home/jdn/Documents/important.pdf ~/Documents/
+```
+
+**From a remote source machine (rsync over SSH using the backup key):**
+
+```bash
+rsync -av \
+    -e "ssh -i ~/.ssh/id_ed25519_backup_<machine>" \
+    jdn@jdnLinux2.local:./home/jdn/Documents/important.pdf \
+    ~/Documents/
+```
+
+The backup SSH key uses `rrsync` on the server side, so the path is relative to `current/` — use `./home/jdn/...` not `/media/jdn/Elements/...`.
 
 ## Restore from a snapshot
 
-Snapshots are hardlink copies of `current/` at the time they were made:
+Snapshots are hardlink copies of `current/` taken nightly at 3:00 AM by `homebackup-snapshot`. They are created after all machines finish backing up, so the newest snapshot may be from yesterday.
 
 ```bash
-ls /media/jdn/Elements/<machine>/snapshots/    # list available dates
-rsync -av /media/jdn/Elements/<machine>/snapshots/2026-04-29/home/jdn/ ~/
+# List available snapshots
+ls /media/jdn/Elements/<machine>/snapshots/
+
+# Restore from a specific date (on jdnLinux2)
+rsync -aHAX /media/jdn/Elements/<machine>/snapshots/2026-04-29/home/jdn/ ~/
+
+# Or from a remote machine via SSH:
+rsync -aHAX \
+    -e "ssh -i ~/.ssh/id_ed25519_backup_<machine>" \
+    jdn@jdnLinux2.local:./  \
+    ~/
 ```
+
+Note: when using the backup SSH key, you are restricted to the `current/` subtree for that machine. To restore from a snapshot remotely, copy from the snapshot to `current/` on jdnLinux2 first, then rsync back.
 
 ## Full machine restore
 
-To restore an entire machine's home directory from the live backup:
+To restore an entire machine's home directory from the live backup (run on jdnLinux2 or copy files directly):
 
 ```bash
 rsync -aHAX --numeric-ids \
-    backup@jdnLinux2.local:./home/jdn/ \
+    /media/jdn/Elements/<machine>/current/home/jdn/ \
     /home/jdn/
 ```
 
@@ -58,4 +82,7 @@ systemctl status homebackup
 # View the log file directly:
 ls -lt /var/log/homebackup/
 cat /var/log/homebackup/<machine>-<date>.log
+
+# Check snapshot log (on jdnLinux2):
+cat /var/log/homebackup/snapshots-<date>.log
 ```
