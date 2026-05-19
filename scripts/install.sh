@@ -114,6 +114,9 @@ if [[ -n "${BACKUP_DRIVE_LABEL:-}" ]]; then
     sudo systemctl enable --now homebackup-snapshot.timer
     info "Snapshot timer enabled (fires at 3:00 AM)."
 
+    # Mount point
+    sudo mkdir -p "${BACKUP_BASE}"
+
     # udev rule — prevents desktop automount of the backup drive
     UDEV_RULE="/etc/udev/rules.d/99-homebackup-drive.rules"
     sudo tee "$UDEV_RULE" > /dev/null <<EOF
@@ -123,19 +126,34 @@ EOF
     sudo udevadm control --reload-rules
     info "udev rule installed: desktop will no longer automount '${BACKUP_DRIVE_LABEL}'."
 
-    # polkit rule — allows jdn to mount/unmount/power-off via udisksctl without an active session
-    POLKIT_RULE="/etc/polkit-1/rules.d/99-homebackup.rules"
-    sudo tee "$POLKIT_RULE" > /dev/null <<'EOF'
-polkit.addRule(function(action, subject) {
-    if ((action.id == "org.freedesktop.udisks2.filesystem-mount" ||
-         action.id == "org.freedesktop.udisks2.filesystem-unmount-others" ||
-         action.id == "org.freedesktop.udisks2.power-off-drive") &&
-        subject.user == "jdn") {
-        return polkit.Result.YES;
-    }
-});
+    # fstab entry — options and mount point; sudo (below) handles privilege
+    if grep -qF "homebackup: ${BACKUP_DRIVE_LABEL}" /etc/fstab; then
+        info "fstab entry for '${BACKUP_DRIVE_LABEL}' already present."
+    else
+        DRIVE_UUID=$(blkid -s UUID -o value "/dev/disk/by-label/${BACKUP_DRIVE_LABEL}" 2>/dev/null) || true
+        if [[ -z "${DRIVE_UUID:-}" ]]; then
+            echo "WARNING: Drive '${BACKUP_DRIVE_LABEL}' not connected — skipping fstab entry." >&2
+            echo "  Connect the drive and re-run install.sh to add it." >&2
+        else
+            info "Adding fstab entry for '${BACKUP_DRIVE_LABEL}' (UUID=${DRIVE_UUID})..."
+            sudo tee -a /etc/fstab > /dev/null <<EOF
+
+# homebackup: ${BACKUP_DRIVE_LABEL}
+UUID=${DRIVE_UUID}  ${BACKUP_BASE}  ntfs-3g  uid=$(id -u),gid=$(id -g),dmask=022,fmask=133,noauto,nofail  0  0
 EOF
-    info "polkit rule installed: jdn can mount/unmount/power-off drives in systemd services."
+            info "fstab entry added."
+        fi
+    fi
+
+    # sudoers — allow passwordless mount/umount of the backup drive only
+    SUDOERS_FILE="/etc/sudoers.d/homebackup"
+    info "Installing sudoers rule for mount/umount..."
+    sudo tee "$SUDOERS_FILE" > /dev/null <<EOF
+$(whoami) ALL=(root) NOPASSWD: /usr/bin/mount ${BACKUP_BASE}
+$(whoami) ALL=(root) NOPASSWD: /usr/bin/umount ${BACKUP_BASE}
+EOF
+    sudo chmod 440 "$SUDOERS_FILE"
+    info "sudoers rule installed: $(whoami) can mount/umount '${BACKUP_BASE}' without a password."
 fi
 
 # --- Print public key and instructions ---
