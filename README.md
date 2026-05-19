@@ -110,7 +110,9 @@ Creates the directory structure on the drive, installs `rrsync`, and sets owners
 bash scripts/install.sh
 ```
 
-Because `jdnLinux2.conf` sets `BACKUP_DRIVE_LABEL`, this also installs the drive lifecycle timers (drive-on, drive-off, snapshot), the udev automount-block rule, and the polkit rule that lets the `jdn` user control the drive from systemd services.
+Because `jdnLinux2.conf` sets `BACKUP_DRIVE_LABEL`, this also installs the drive lifecycle timers (drive-on, drive-off, snapshot), the udev automount-block rule, an `/etc/fstab` entry for the drive, and a sudoers rule (`/etc/sudoers.d/homebackup`) that lets the `jdn` user mount and unmount the drive from systemd services without a password.
+
+> **NTFS note:** `ntfs-3g` is not installed setuid on this system, so `jdn` cannot open the block device directly. The sudoers rule allows `sudo mount` and `sudo umount` for exactly `/media/jdn/Elements` — nothing else. The fstab entry specifies `ntfs-3g` with `uid=1000,gid=1000` so files are owned by `jdn` after mounting.
 
 ### Step 3 — Install on each other source machine
 
